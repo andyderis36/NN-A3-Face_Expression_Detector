@@ -310,40 +310,38 @@ if page == "Stress Detection Portal":
             sub_col1, sub_col2 = st.columns([3, 1])
             with sub_col1:
                 if is_cloud:
-                    # Cloud: camera_input auto-capture loop (bypasses WebRTC UDP/TURN blocks)
-                    js_guard = """
-                    <style>
-                    /* Hide st.camera_input widget off-screen to prevent duplicate preview */
-                    div[data-testid="stCameraInput"] {
-                        position: absolute !important;
-                        left: -9999px !important;
-                        top: -9999px !important;
-                        opacity: 0 !important;
-                        height: 0px !important;
-                        width: 0px !important;
-                        overflow: hidden !important;
-                    }
-                    </style>
-                    <script>
-                    if (!window._camAutoCapture) {
-                        window._camAutoCapture = setInterval(function() {
-                            var btn = document.querySelector('button[data-testid="baseButton-primary"]');
-                            if (btn) btn.click();
-                        }, 300);
-                    }
-                    </script>
-                    """
-                    st.markdown(js_guard, unsafe_allow_html=True)
+                    # Ensure camera index state exists
+                    if "camera_index" not in st.session_state:
+                        st.session_state.camera_index = 0
                     
-                    img = st.camera_input("Capture", key="cloud_cam", label_visibility="collapsed")
+                    camera_key = f"cloud_cam_{st.session_state.camera_index}"
+                    
+                    # Capture manual snapshot (fully visible live feed, hides when image is captured)
+                    img = st.camera_input("Capture", key=camera_key, label_visibility="collapsed")
                     
                     if img:
+                        # Once photo is taken, inject CSS to hide the raw camera widget completely
+                        hide_camera_css = """
+                        <style>
+                        [data-testid="stCameraInput"] {
+                            display: none !important;
+                        }
+                        </style>
+                        """
+                        st.markdown(hide_camera_css, unsafe_allow_html=True)
+                        
+                        # Process the frame
                         processed_frame, stress_val, emotion = process_cloud_frame(img.getvalue())
                         if processed_frame is not None:
                             st.image(processed_frame, use_column_width=True)
                         st.session_state.cloud_stress["counter"] = stress_val
+                        
+                        # Custom Retake button to go back to live camera feed
+                        if st.button("📸 Retake Photo"):
+                            st.session_state.camera_index += 1
+                            st.rerun()
                     else:
-                        st.info("⏳ Initializing camera... Please allow camera access when prompted.")
+                        st.info("💡 Position your face in the frame and click **Take Photo**.")
                 else:
                     # Localhost: direct STUN P2P (fastest, no relay overhead)
                     frontend_config = server_config = {
@@ -363,12 +361,15 @@ if page == "Stress Detection Portal":
                     )
         else:
             st.markdown("#### 📷 Photo Source")
-            photo_source = st.radio(
-                "Choose photo source", 
-                ["📁 Upload from File Explorer", "📸 Take a Camera Snapshot"], 
-                horizontal=True,
-                label_visibility="collapsed"
-            )
+            if is_cloud:
+                photo_source = "📁 Upload from File Explorer"
+            else:
+                photo_source = st.radio(
+                    "Choose photo source", 
+                    ["📁 Upload from File Explorer", "📸 Take a Camera Snapshot"], 
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
             
             uploaded_file = None
             if photo_source == "📸 Take a Camera Snapshot":
