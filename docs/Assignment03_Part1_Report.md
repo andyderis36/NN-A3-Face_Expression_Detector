@@ -31,6 +31,12 @@ To improve classification performance beyond the baseline (~63%), the CNN archit
 3. **Non-blocking Audio Alerts**: Configured `winsound.Beep` to run in a separate asynchronous thread (preventing camera lag) with a 2-second cooldown to avoid sound spamming.
 4. **CSV Logging**: Programmed automatic logging of timestamps and stress levels to `output/stress_log.csv` only when the stress level exceeds a threshold of 30.
 
+### 2.3 Cloud-Native Streamlit Dashboard (`app.py`)
+To enable public web hosting and demonstrate deployment-readiness, a Streamlit dashboard was created:
+1. **WebRTC Integration**: Used `streamlit-webrtc` with a thread-safe frame processing callback to fetch, process, and return annotated video frames asynchronously on the server.
+2. **HUD Bounding Box Overlay**: Renders real-time classification, smooth progress bar meters, and alert markers directly on the browser feed.
+3. **Analytics Panel**: Includes an interactive Plotly chronological stress graph with customized selection windows (Last 5, 10, 15, 30 minutes, or 1 hour) and a centered data grid log.
+
 ---
 
 ## 3. Answers to Report Questions (Part I)
@@ -90,7 +96,11 @@ To improve classification performance beyond the baseline (~63%), the CNN archit
 ### C. Evaluation / Experiment Questions
 
 #### 1. Plot training & validation accuracy for your CNN model.
-* The plots are automatically generated and saved to [output/training_history.png](file:///C:/Users/andyd/Documents/UUM/UUM%20OL/A252/NN/A3/output/training_history.png) upon running the training script.
+The training history plot (displaying accuracy and loss curves for both training and validation splits) is generated automatically upon running the training script:
+
+![CNN Model Training History](file:///C:/Users/andyd/Documents/UUM/UUM%20OL/A252/NN/A3/output/training_history.png)
+
+*The plot is also saved locally for submission at [output/training_history.png](file:///C:/Users/andyd/Documents/UUM/UUM%20OL/A252/NN/A3/output/training_history.png).*
 
 #### 2. Provide a confusion matrix for stress vs non-stress detection.
 * Can be generated on the test split using `sklearn.metrics.confusion_matrix`.

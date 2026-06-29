@@ -1,151 +1,131 @@
-# Facial Images-based Stress & Emotion Detection (STINK3014 A252 - Assignment 3)
+---
+title: Face Expression Detector
+emoji: 🧠
+colorFrom: red
+colorTo: blue
+sdk: streamlit
+sdk_version: 1.30.0
+python_version: 3.12
+app_file: app.py
+pinned: false
+---
 
-Dokumentasi lengkap untuk repositori tugas "FACIAL IMAGES-BASED STRESS AND EMOTION DETECTION USING DEEP LEARNING TECHNIQUE".
+# Student Stress & Emotion Detection System (STINK3014 - Assignment 3)
 
-## Ringkasan proyek
-Sistem real-time untuk mendeteksi emosi dan status stres dari citra wajah menggunakan Convolutional Neural Network (CNN). Sistem ini mencakup komponen:
-- Pelatihan model (baseline) dari FER2013
-- Deployment real-time menggunakan webcam dan Haar cascade
-- Ekstensi konseptual untuk aplikasi dunia nyata (Part II tugas)
+Comprehensive implementation for UUM Neural Networks course (STINK3014) on **"Facial Images-Based Stress and Emotion Detection Using Deep Learning Technique"**.
 
-Referensi instruksi tugas: `STINK3014_A252_Assignment03.pdf` (lihat file di root repo).
+This repository contains a full pipeline: training a 7-class CNN model on the FER2013 dataset, deploying a local real-time OpenCV-based webcam application, and hosting a production-grade interactive WebRTC Streamlit Dashboard suitable for cloud deployment.
 
-## Struktur repositori
-- `STINK3014_A252_Assignment03.pdf` - Instruksi tugas lengkap.
-- `Pack01a_BaselineCode/` - Kode & data untuk melatih model (mengandung `fer2013.csv` dan `STINK3014_CaseStudy_FacialExpressionDetection_Dev.py`).
-- `Pack01b_DeploymentCode/` - Kode untuk deployment & demo real-time (`STINK3014_CaseStudy_FacialExpressionDetection_App.py`, dan file bantuan seperti `haarcascade_frontalface_default.xml` atau model `stress_detector_cnn.h5`).
-- `Pack02_SUEQ tool/` - Alat S-UEQ (Short UEQ) untuk evaluasi pengalaman pengguna (PDF & Excel).
-- `.venv/` - Virtual environment Python (sudah ada). Gunakan selalu `.venv` untuk menjalankan skrip dan instal paket.
-- `.gitignore` - file gitignore
+---
 
-## Tujuan dokumentasi ini
-- Menyediakan panduan cepat untuk men-setup environment dan menjalankan skrip di Windows
-- Menjelaskan file penting dan alur kerja: pra-pemrosesan, pelatihan, penyimpanan model, deployment, logging, dan evaluasi
-- Menyertakan catatan etika/privasi dan persyaratan laporan/presentasi
+## 📂 Repository Structure
 
-## Persyaratan & Dependensi (disarankan)
-Disarankan membuat dan menggunakan virtual environment `.venv` yang sudah ada.
-Saran paket Python (tambahkan ke `requirements.txt` jika diinginkan):
-- tensorflow (sesuaikan versi yang tersedia di sistem)
-- opencv-python
-- numpy
-- pandas
-- matplotlib
-- scikit-learn
-- pypdf
-- playsound (opsional, untuk audio) atau gunakan `winsound` pada Windows
-
-Contoh entry `requirements.txt` (opsional):
-```
-tensorflow
-opencv-python
-numpy
-pandas
-matplotlib
-scikit-learn
-pypdf
-playsound
+```text
+A3/
+├── Pack01a_BaselineCode/
+│   ├── FacialExpressionDetection_Dev.py  # Model training, validation, and history plotting
+│   └── fer2013.csv                       # FER2013 dataset file (Download: https://drive.google.com/file/d/1rYHyg1HR84RycynB0BQ6K2RNE6dwDX_4/view?usp=sharing)
+├── Pack01b_DeploymentCode/
+│   ├── FacialExpressionDetection_App.py  # Local OpenCV-based webcam application
+│   └── haarcascade_frontalface_default.xml # Haar Cascade face detector
+├── Pack02_SUEQ tool/
+│   ├── Short_UEQ_Data_Analysis_Tool.xlsx # S-UEQ data processing tool
+│   └── UEQS_Items.pdf                    # Bipolar 7-point scale questionnaires
+├── docs/
+│   ├── Assignment03_Part1_Report.md      # Part I Report (Technical & Evaluation Answers)
+│   └── Assignment03_Part2_Report.md      # Part II Report (Student Mental Health Architecture)
+├── output/                               # Generated runtime outputs (auto-created)
+│   ├── emotion_stress_cnn.h5             # Saved 7-class CNN model
+│   ├── training_history.png              # Accuracy and Loss curves
+│   └── stress_log.csv                    # Logs of high stress events
+├── app.py                                # Streamlit WebRTC Dashboard (Main Cloud Entry)
+├── requirements.txt                      # Pip dependencies for cloud deployment
+└── README.md                             # Repository documentation
 ```
 
-## Penggunaan (.venv) — Windows
-Semua perintah berikut diasumsikan dijalankan di root repo (lokasi file `README.md`). Gunakan terminal PowerShell atau cmd.exe.
+---
 
-1) Mengaktifkan virtual environment (PowerShell):
-```
+## 📈 Model Evaluation & Training Results
+
+Below are the accuracy and loss curves generated after training the 7-class CNN model for 15 epochs on the FER2013 dataset:
+
+![Model Training History](output/training_history.png)
+
+---
+
+## ⚙️ Environment Setup & Installation
+
+All steps assume execution from the root of the repository.
+
+### 1) Activate Virtual Environment
+Windows (PowerShell):
+```powershell
 .\.venv\Scripts\Activate.ps1
 ```
-Atau (cmd.exe):
-```
+Windows (CMD):
+```cmd
 .\.venv\Scripts\activate.bat
 ```
 
-2) Menginstal dependensi (jika perlu):
+### 2) Install Dependencies
+For local and cloud deployment, run:
+```powershell
+pip install -r requirements.txt
 ```
-.\.venv\Scripts\pip.exe install -r requirements.txt
-```
-Atau menginstal paket satu per satu:
-```
-.\.venv\Scripts\pip.exe install tensorflow opencv-python numpy pandas matplotlib scikit-learn pypdf playsound
-```
-
-3) Menjalankan skrip pelatihan (baseline):
-```
-.\.venv\Scripts\python.exe "Pack01a_BaselineCode\STINK3014_CaseStudy_FacialExpressionDetection_Dev.py"
-```
-Skrip tersebut memproses `fer2013.csv`, membuat dataset stress vs calm, melatih CNN sederhana, dan menyimpan model sebagai `stress_detector_cnn.h5`.
-
-4) Menjalankan aplikasi deployment (webcam):
-```
-.\.venv\Scripts\python.exe "Pack01b_DeploymentCode\STINK3014_CaseStudy_FacialExpressionDetection_App.py"
-```
-Pastikan file `stress_detector_cnn.h5` berada di folder yang sama (atau sesuaikan path di skrip). Tekan `q` untuk keluar.
-
-## Deskripsi file penting
-- `Pack01a_BaselineCode/STINK3014_CaseStudy_FacialExpressionDetection_Dev.py`
-  - Baca `fer2013.csv`, convert string pixel ke array 48x48 grayscale, buat label stress vs calm
-  - Membangun model CNN (contoh: 2 conv layer -> pooling -> dense -> softmax), melatih dan menyimpan model
-  - Catatan: skrip saat ini memakai 1 epoch (untuk demonstrasi). Untuk eksperimen, tingkatkan jumlah epoch dan pertimbangkan augmentasi/hyperparameter tuning
-
-- `Pack01b_DeploymentCode/STINK3014_CaseStudy_FacialExpressionDetection_App.py`
-  - Memuat `stress_detector_cnn.h5`, menangkap frame webcam, mendeteksi wajah dengan Haar cascade, mengekstrak ROI, melakukan prediksi, menampilkan hasil pada frame
-  - Perlu penambahan fitur: audio beep alert saat deteksi stres tinggi, dan logging kejadian stres ke CSV
-
-- `Pack02_SUEQ tool/`
-  - S-UEQ tools untuk ujicoba UX (kuesioner + analisis). Gunakan untuk bagian Part II tugas.
-
-## Rekomendasi perubahan & TODO penting
-1. Tambahkan `requirements.txt` yang sesuai dengan versi TensorFlow yang digunakan.
-2. Perbaikan `App.py`:
-   - Tambah logging ke CSV (timestamp, predicted_label, confidence, frame_count atau counter)
-   - Tambah audio alert: gunakan modul `winsound.Beep(frequency, duration)` di Windows atau `playsound` untuk file .wav
-   - Tambah logic untuk mencegah spam alert (mis. deteksi stres selama N frame berturut-turut sebelum memicu alarm)
-3. Tambah evaluasi: simpan plot akurasi & loss (matplotlib) ke folder `results/` dan ekspor confusion matrix (CSV / gambar)
-4. Buat notebook atau skrip untuk analisis S-UEQ dari `Pack02_SUEQ tool` jika perlu.
-
-Contoh tambahan sederhana (logging + beep) untuk `App.py` (pseudo):
-```py
-import csv, time
-import winsound
-
-# saat stress terdeteksi berulang
-with open('stress_log.csv','a',newline='') as f:
-    writer = csv.writer(f)
-    writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), 'Stressed', confidence])
-
-# beep
-winsound.Beep(1000, 500)  # 1000 Hz selama 500 ms
-```
-
-## Petunjuk eksperimen & evaluasi
-- Pelatihan: gunakan `train_test_split` dan `validation_split`; simpan riwayat training untuk membuat plot akurasi & loss
-- Evaluasi stres vs non-stres: ekstrak confusion matrix pada set test (stressed vs calm)
-- Metrik yang diminta pada tugas: accuracy, stress detection rate, false alarm rate
-
-## Bagian laporan (sesuai instruksi PDF)
-Laporan harus mencakup:
-- Penjelasan arsitektur CNN dan alasan pemilihan layer / hyperparameter
-- Langkah preprocessing FER2013
-- Cara perhitungan "stress level" (mis. jumlah frame berturut-turut dengan label stress)
-- Grafik akurasi & loss, confusion matrix, analisis trade-off deteksi vs false alarms
-- Part II: ide aplikasi, arsitektur, isu privasi & etika, skenario deployment (edge vs server)
-- Hasil S-UEQ (analisis pragmatic & hedonic scores)
-
-## Catatan Etika & Privasi
-- Pastikan mendapat informed consent saat mengumpulkan data pengguna nyata
-- Agar anonimitas, jangan simpan gambar/raw frame kecuali diperlukan dan terenkripsi
-- Terapkan prinsip privacy-by-design; laporkan bagaimana data disimpan, siapa yang punya akses, dan berapa lama disimpan
-
-## Troubleshooting
-- Jika webcam tidak terdeteksi: coba ganti index `cv2.VideoCapture(0)` ke `1` atau periksa driver
-- Jika model gagal dimuat: pastikan `stress_detector_cnn.h5` ada di path yang sama dengan skrip atau ubah `load_model()` path
-- Jika perpustakaan TensorFlow tidak terinstal di `.venv`: aktifkan `.venv` lalu jalankan pip install via `.venv\Scripts\pip.exe`
-
-## Contributors & Kontak
-- Student: (sesuaikan dengan nama Anda)
-- Instructor: Associate Prof. Dr Azizi Ab Aziz
-
-## Lisensi
-Gunakan sesuai kebijakan universitas dan tidak menyalin karya orang lain (plagiarisme dilarang sesuai PDF tugas).
 
 ---
-Catatan: README ini adalah dokumentasi awal yang lengkap untuk mereproduksi dan mengembangkan tugas. Jika ingin, dokumen dapat diperluas menjadi panduan langkah-demi-langkah untuk eksperimen tertentu (hyperparameter tuning, augmentation, deployment on edge, dsb.).
+
+## 🚀 Execution Guide
+
+### Step 1: Train the CNN Model (Baseline & History)
+Run the training script to load all 7 classes of the FER2013 dataset, build/compile the deepened CNN, and export accuracy curves:
+```powershell
+.\.venv\Scripts\python.exe "Pack01a_BaselineCode\FacialExpressionDetection_Dev.py"
+```
+*Outputs generated in `output/`: `emotion_stress_cnn.h5` and `training_history.png`.*
+
+### Step 2: Run Local OpenCV Webcam Application
+Run the local camera detection utility that uses a temporal counter, visual progress bars, audio beep alerts (Windows native), and CSV event logging:
+```powershell
+.\.venv\Scripts\python.exe "Pack01b_DeploymentCode\FacialExpressionDetection_App.py"
+```
+*Press `q` on the camera window to exit.*
+
+### Step 3: Run Interactive Streamlit Dashboard (Local / Web)
+Run the web-based WebRTC application that operates asynchronously and compiles logs:
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+*Access via your browser at: `http://localhost:8501`*
+
+---
+
+## ☁️ Deployment to Streamlit Community Cloud
+
+This project is fully compatible with Streamlit Community Cloud:
+1. **GitHub Push**: Commit and push the entire repository (including `app.py`, `requirements.txt`, `output/emotion_stress_cnn.h5`, and the `Pack01b_DeploymentCode/` folder).
+2. **Streamlit Cloud Connection**:
+   * Visit [share.streamlit.io](https://share.streamlit.io/).
+   * Select your repository and branch (`main`).
+   * Set **Main file path** to `app.py`.
+   * Click **Deploy**.
+3. The platform will read `requirements.txt`, install dependencies (running tensorflow-cpu and headless-opencv), and serve the app live with WebRTC webcam support!
+
+---
+
+## ⚠️ Git Configuration & Large Files (.gitignore)
+
+A pre-configured `.gitignore` file is provided in this repository. It is **critical** to verify this before pushing:
+* **Large Dataset (`fer2013.csv`)**: The FER2013 dataset is approximately **300MB**. GitHub has a strict file size limit of **100MB** per file. Trying to push this file will cause your git push to fail. The `.gitignore` is set to ignore `**/fer2013.csv`. You can download it from [Google Drive](https://drive.google.com/file/d/1rYHyg1HR84RycynB0BQ6K2RNE6dwDX_4/view?usp=sharing) and place it inside the `Pack01a_BaselineCode/` directory to run training locally.
+* **Virtual Environment (`.venv/`)**: Prevents uploading local packages. Streamlit Cloud will install these dynamically.
+* **Local Logs (`output/stress_log.csv`)**: Excluded from version control so that cloud logging runs independently.
+
+---
+
+## 🛠️ Code Customizations & Features
+
+* **7-Class Classifier**: Trained on standard FER2013 classes (0: Angry, 1: Disgust, 2: Fear, 3: Happy, 4: Sad, 5: Surprise, 6: Neutral) to enable accurate non-stressed states (like smiling or being neutral) and prevent false stress alarms.
+* **Temporal Stress Accumulation**: Level increases with consecutive Angry/Fear detections and decays when Calm (Happy/Neutral/Surprise) is detected.
+* **HUD Overlay**: Clean, anti-aliased text overlay (`cv2.LINE_AA`) displaying stress meters next to the face and warning signs.
+* **Time-Window Filtering**: Dashboard analytics chart allows filtering logged data to view the last 5, 10, 15, 30 minutes, or 1 hour dynamically.
+* **STUN Server ICE Configuration**: Integrated Google's public STUN server (`stun:stun.l.google.com:19302`) in `app.py` WebRTC configuration to ensure connection traversal works seamlessly across firewalls and NATs on Streamlit Cloud.

@@ -1,0 +1,33 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache & Compiled Files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# Dataset (CRITICAL: fer2013.csv is ~300MB and will exceed GitHub's 100MB file limit)
+**/fer2013.csv
+Pack01a_BaselineCode/fer2013.csv
+
+# Local Test Outputs & Database Logs
+output/stress_log.csv
+stress_log.csv
+*.log
+streamlit_local*
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+convert_to_onnx.py
+docs/credentials.md
+.omo
+.opencode
+.playwright-mcp
+.python-version
