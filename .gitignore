@@ -31,3 +31,20 @@ docs/credentials.md
 .opencode
 .playwright-mcp
 .python-version
+
+# IDE / Editor Settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Streamlit Secrets (Crucial: never commit credentials)
+.streamlit/secrets.toml
+**/secrets.toml
+
+# Frontend Node Dependencies
+node_modules/
+package-lock.json

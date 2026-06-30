@@ -416,7 +416,10 @@ elif page == "Analytics Dashboard":
             ["All History", "Last 1 Hour", "Last 30 Minutes", "Last 15 Minutes", "Last 10 Minutes", "Last 5 Minutes"]
         )
         
-        now = pd.Timestamp.now()
+        now = df["Timestamp"].max()
+        if pd.isna(now):
+            now = pd.Timestamp.now()
+
         if time_filter == "Last 1 Hour":
             df = df[df["Timestamp"] >= now - pd.Timedelta(hours=1)]
         elif time_filter == "Last 30 Minutes":
@@ -439,16 +442,15 @@ elif page == "Analytics Dashboard":
             column_config={
                 "Timestamp": st.column_config.DatetimeColumn(
                     "Timestamp",
-                    format="YYYY-MM-DD HH:mm:ss",
-                    alignment="center"
+                    format="YYYY-MM-DD HH:mm:ss"
                 ),
                 "Stress Level": st.column_config.NumberColumn(
                     "Stress Level",
-                    format="%d%%",
-                    alignment="center"
+                    format="%d%%"
                 )
             }
         )
+
     else:
         st.info("No logs saved yet. Please perform stress detection first.")
 

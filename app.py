@@ -7,8 +7,12 @@ import numpy as np
 import cv2
 import onnxruntime as ort
 import plotly.express as px
-from streamlit_webrtc import webrtc_streamer
-import av
+import streamlit.components.v1 as components
+
+# Declare custom component for client-side WebRTC inference (Scenario A)
+parent_dir = os.path.dirname(os.path.abspath(__file__))
+frontend_dir = os.path.join(parent_dir, "frontend")
+stress_webrtc_component = components.declare_component("stress_webrtc", path=frontend_dir)
 import threading
 import time
 import csv
@@ -17,6 +21,17 @@ import tempfile
 
 # Set Page Config
 st.set_page_config(page_title="Student Stress Monitor", layout="wide")
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 3.5rem !important;
+        padding-bottom: 1.5rem !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # Resolve paths dynamically
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -40,92 +55,7 @@ except Exception as e:
 
 labels_dict = {0: "Angry", 1: "Disgust", 2: "Fear", 3: "Happy", 4: "Sad", 5: "Surprise", 6: "Neutral"}
 
-# Cloud RTC configuration with TURN relay (bypasses UDP blocks on Streamlit Cloud / HF Spaces)
-def get_cloud_rtc_config():
-    """Get TURN-enabled RTC config for cloud environments.
-    
-    Tier 1: streamlit-webrtc's get_hf_ice_servers() (HF internal infra, DNS resolves).
-    Tier 2: Cloudflare TURN via fastrtc endpoint (DNS may fail on HF Spaces).
-    Fallback: Metered.ca open relay with TCP transport (universal fallback).
-    """
-    hf_token = os.environ.get("HF_TOKEN")
-    print(f"[RTC] HF_TOKEN present: {bool(hf_token)}")
 
-    # --- DNS Diagnostics ---
-    import socket
-    for host in [
-        "fastrtc-turn-server-login.hf.space",
-        "turn.fastrtc.org",
-        "openrelay.metered.ca",
-    ]:
-        try:
-            ip = socket.gethostbyname(host)
-            print(f"[RTC] DNS OK: {host} -> {ip}")
-        except Exception as e:
-            print(f"[RTC] DNS FAIL: {host} -> {e}")
-
-    # --- Tier 1: HF native ICE server (internal HF infra, DNS should resolve) ---
-    if hf_token:
-        try:
-            from streamlit_webrtc import get_hf_ice_servers
-            raw = get_hf_ice_servers(token=hf_token)
-            print(f"[RTC] get_hf_ice_servers() succeeded: {raw}")
-
-            # Modify all TURN URLs to force TCP transport
-            ice_servers = []
-            for sv in raw:
-                urls = sv["urls"]
-                if isinstance(urls, str):
-                    urls = [urls]
-                modified_urls = [
-                    u + ("?transport=tcp" if "?" not in u else u)
-                    for u in urls
-                ]
-                ice_servers.append({
-                    "urls": modified_urls,
-                    "username": sv["username"],
-                    "credential": sv["credential"],
-                })
-
-            return {
-                "iceServers": ice_servers,
-                "iceTransportPolicy": "relay",
-            }
-        except Exception as e:
-            print(f"[RTC] HF native ICE servers failed: {e}")
-    else:
-        print("[RTC] No HF_TOKEN — skipping Tier 1 and Tier 2")
-
-    # --- Tier 2: Cloudflare TURN via fastrtc endpoint ---
-    if hf_token:
-        try:
-            req = urllib.request.Request(
-                "https://turn.fastrtc.org/credentials?ttl=600",
-                headers={"Authorization": f"Bearer {hf_token}"},
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read())
-                print(f"[RTC] Cloudflare TURN succeeded: {data}")
-                return data
-        except Exception as e:
-            print(f"[RTC] Cloudflare TURN failed: {e}")
-
-    # --- Fallback: Metered.ca open relay over TCP ---
-    print("[RTC] Falling back to Metered.ca TURN relay")
-    return {
-        "iceServers": [
-            {
-                "urls": [
-                    "turn:openrelay.metered.ca:80?transport=tcp",
-                    "turn:openrelay.metered.ca:443?transport=tcp",
-                    "turns:openrelay.metered.ca:443?transport=tcp",
-                ],
-                "username": "openrelayproject",
-                "credential": "openrelayproject",
-            },
-        ],
-        "iceTransportPolicy": "relay",
-    }
 
 # Thread-safe state for the background video processor
 class StressState:
@@ -144,149 +74,39 @@ state = get_state()
 if "cloud_stress" not in st.session_state:
     st.session_state.cloud_stress = {"counter": 0, "last_alert": 0.0}
 
-def process_cloud_frame(image_bytes):
-    """Process a single captured frame from st.camera_input on cloud.
-    
-    Returns (rgb_image_with_HUD, stress_level, emotion_name) or (None, current_stress, None) on error.
-    """
-    try:
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if frame is None:
-            return None, st.session_state.cloud_stress["counter"], None
-        
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-        
-        stress = st.session_state.cloud_stress["counter"]
-        detected_emotion = None
-        frame_stress_added = 0
-        
-        for (x, y, w, h) in faces:
-            roi = gray[y:y+h, x:x+w]
-            roi = cv2.resize(roi, (48, 48)) / 255.0
-            roi = roi.reshape(1, 48, 48, 1).astype(np.float32)
-            
-            predictions = session.run(None, {input_name: roi})[0][0]
-            class_id = np.argmax(predictions)
-            detected_emotion = labels_dict[class_id]
-            
-            if class_id in [0, 2]:  # Angry, Fear
-                frame_stress_added += 25
-            else:
-                frame_stress_added -= 5
-            
-            box_color = (0, 0, 255) if class_id in [0, 2] else (0, 255, 0)
-            cv2.rectangle(frame, (x, y), (x+w, y+h), box_color, 2)
-            cv2.putText(frame, labels_dict[class_id], (x, y-10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, box_color, 2)
-        
-        if len(faces) > 0:
-            stress = min(100, max(0, stress + frame_stress_added))
-        else:
-            stress = max(0, stress - 3)
-        
-        # Draw stress overlay on frame
-        stress_color = (0, 0, 255) if stress > 50 else (0, 255, 0)
-        cv2.putText(frame, f"Stress: {stress}%", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, stress_color, 2)
-        
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        return frame_rgb, stress, detected_emotion
-        
-    except Exception as e:
-        print(f"[CLOUD] Frame processing error: {e}")
-        return None, st.session_state.cloud_stress["counter"], None
 
-# Callback for processing video frames
-def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
-    img = frame.to_ndarray(format="bgr24")
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-    
-    # If no face detected, gradually decay stress
-    if len(faces) == 0:
-        with state.lock:
-            state.stress_counter = max(0, state.stress_counter - 1)
-            
-    for (x, y, w, h) in faces:
-        roi = gray[y:y+h, x:x+w]
-        roi = cv2.resize(roi, (48, 48)) / 255.0
-        roi = roi.reshape(1, 48, 48, 1).astype(np.float32)
-        
-        predictions = session.run(None, {input_name: roi})[0][0]
-        class_id = np.argmax(predictions)
-        conf = predictions[class_id]
-        
-        with state.lock:
-            # Stress Logic (Angry=0 & Fear=2)
-            if class_id in [0, 2]:
-                state.stress_counter = min(100, state.stress_counter + 2)
-            else:
-                state.stress_counter = max(0, state.stress_counter - 1)
-            
-            current_stress = state.stress_counter
-            last_alert = state.last_alert_time
 
-        # Draw bounding box (Red for Stressed, Green for Calm/Others)
-        color = (0, 0, 255) if class_id in [0, 2] else (0, 255, 0)
-        cv2.rectangle(img, (x, y), (x+w, y+h), color, 2)
-        
-        # Clean HUD-style text layout above the bounding box
-        # 1. Emotion label
-        cv2.putText(img, f"{labels_dict[class_id]} ({conf*100:.0f}%)", (x, y - 8), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
-        
-        # 2. Progress Bar (6px tall)
-        cv2.rectangle(img, (x, y - 26), (x + 100, y - 20), (80, 80, 80), -1)
-        cv2.rectangle(img, (x, y - 26), (x + current_stress, y - 20), color, -1)
-        
-        # 3. Stress level indicator text to the right of the progress bar
-        cv2.putText(img, f"Stress: {current_stress}%", (x + 105, y - 19), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
-        
-        # 4. Stress Alert label above the meter if stress >= 30
-        if current_stress >= 30:
-            cv2.putText(img, "ALERT!", (x, y - 34), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2, cv2.LINE_AA)
-            
-            # Non-blocking log to CSV inside thread
-            current_time = time.time()
-            if current_time - last_alert > 2.0:
-                with state.lock:
-                    state.last_alert_time = current_time
-                
-                # Write to CSV safely
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
-                file_exists = os.path.exists(LOG_PATH)
-                with open(LOG_PATH, "a", newline="") as f:
-                    writer = csv.writer(f)
-                    if not file_exists or os.path.getsize(LOG_PATH) == 0:
-                        writer.writerow(["Timestamp", "Stress Level"])
-                    writer.writerow([timestamp, current_stress])
-                    
-    return av.VideoFrame.from_ndarray(img, format="bgr24")
+# Session state navigation management
+if "active_page" not in st.session_state:
+    st.session_state.active_page = "Stress Detection Portal"
 
-# Header Layout (Title on left, compact navigation dropdown on right)
-header_col1, header_col2 = st.columns([3, 1])
+def on_portal_change():
+    st.session_state.active_page = st.session_state.nav_portal
 
-with header_col2:
-    page = st.selectbox(
-        "Navigation", 
-        ["Stress Detection Portal", "Analytics Dashboard"], 
-        label_visibility="collapsed"
-    )
+def on_analytics_change():
+    st.session_state.active_page = st.session_state.nav_analytics
 
-with header_col1:
-    if page == "Stress Detection Portal":
-        st.markdown("### 🧠 Student Stress Detection System")
-        st.markdown("###### Real-time Emotion & Stress Tracking")
-    else:
+page = st.session_state.active_page
+
+# Header Layout
+if page == "Stress Detection Portal":
+    st.markdown("### 🧠 Student Stress Detection <span style='font-size: 14px; font-weight: normal; color: #a3a8b4; margin-left: 10px;'>| Real-time Emotion & Stress Tracking</span>", unsafe_allow_html=True)
+else:
+    header_col1, header_col2 = st.columns([3, 1])
+    with header_col1:
         st.markdown("### 📊 Student Stress Analytics Dashboard")
-        st.write("")
+    with header_col2:
+        page = st.selectbox(
+            "Navigation", 
+            ["Stress Detection Portal", "Analytics Dashboard"], 
+            key="nav_analytics",
+            index=1,
+            on_change=on_analytics_change,
+            label_visibility="collapsed"
+        )
 
-st.write("---")
+# Thin custom divider to save vertical space
+st.markdown("<div style='border-bottom: 1px solid #30363d; margin-top: -10px; margin-bottom: 15px;'></div>", unsafe_allow_html=True)
 
 if page == "Stress Detection Portal":
     # Context-aware environment detection
@@ -294,71 +114,40 @@ if page == "Stress Detection Portal":
     is_hugging_face = "SPACE_ID" in os.environ
     is_cloud = is_streamlit_cloud or is_hugging_face
     
-    mode = st.radio(
-        "Choose Input Mode",
-        ["🎥 Real-time Webcam", "📁 Upload Image / Photo"],
-        horizontal=True,
-    )
+    mode = "🎥 Real-time Webcam"
     
     # Split layout 1:1 to keep columns balanced at 50:50
     col1, col2 = st.columns([1, 1])
     
     with col1:
         if mode == "🎥 Real-time Webcam":
-            st.markdown("#### 🎥 Webcam Feed")
-            # Sub-columns to shrink the webcam window by 25% (taking 3/4 of the 50% column width)
-            sub_col1, sub_col2 = st.columns([3, 1])
-            with sub_col1:
-                if is_cloud:
-                    # Ensure camera index state exists
-                    if "camera_index" not in st.session_state:
-                        st.session_state.camera_index = 0
+            if is_cloud:
+                # Render client-side WebRTC inference component (Scenario A)
+                telemetry = stress_webrtc_component(key="cloud_webrtc")
+                
+                if telemetry:
+                    stress_val = telemetry.get("stress_level", 0)
+                    emotion = telemetry.get("emotion", "Neutral")
+                    confidence = telemetry.get("confidence", 0.0)
                     
-                    camera_key = f"cloud_cam_{st.session_state.camera_index}"
+                    st.session_state.cloud_stress["counter"] = stress_val
                     
-                    # Capture manual snapshot (fully visible live feed, hides when image is captured)
-                    img = st.camera_input("Capture", key=camera_key, label_visibility="collapsed")
-                    
-                    if img:
-                        # Once photo is taken, inject CSS to hide the raw camera widget completely
-                        hide_camera_css = """
-                        <style>
-                        [data-testid="stCameraInput"] {
-                            display: none !important;
-                        }
-                        </style>
-                        """
-                        st.markdown(hide_camera_css, unsafe_allow_html=True)
-                        
-                        # Process the frame
-                        processed_frame, stress_val, emotion = process_cloud_frame(img.getvalue())
-                        if processed_frame is not None:
-                            st.image(processed_frame, use_column_width=True)
-                        st.session_state.cloud_stress["counter"] = stress_val
-                        
-                        # Custom Retake button to go back to live camera feed
-                        if st.button("📸 Retake Photo"):
-                            st.session_state.camera_index += 1
-                            st.rerun()
-                    else:
-                        st.info("💡 Position your face in the frame and click **Take Photo**.")
+                    # Logging alert to CSV if stress is high (throttled to once every 2 seconds)
+                    if stress_val >= 30:
+                        current_time = time.time()
+                        if current_time - st.session_state.cloud_stress["last_alert"] > 2.0:
+                            st.session_state.cloud_stress["last_alert"] = current_time
+                            timestamp = telemetry.get("client_time", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                            os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+                            file_exists = os.path.exists(LOG_PATH)
+                            with open(LOG_PATH, "a", newline="") as f:
+                                writer = csv.writer(f)
+                                if not file_exists or os.path.getsize(LOG_PATH) == 0:
+                                    writer.writerow(["Timestamp", "Stress Level"])
+                                writer.writerow([timestamp, stress_val])
+
                 else:
-                    # Localhost: direct STUN P2P (fastest, no relay overhead)
-                    frontend_config = server_config = {
-                        "iceServers": [
-                            {"urls": ["stun:stun.l.google.com:19302"]},
-                            {"urls": ["stun:stun1.l.google.com:19302"]},
-                            {"urls": ["stun:stun2.l.google.com:19302"]},
-                        ]
-                    }
-                    
-                    webrtc_streamer(
-                        key="stress-detector",
-                        video_frame_callback=video_frame_callback,
-                        frontend_rtc_configuration=frontend_config,
-                        server_rtc_configuration=server_config,
-                        media_stream_constraints={"video": True, "audio": False},
-                    )
+                    st.warning("⚠️ For local deployment, please run 'appLocal.py' instead to use direct local WebRTC.")
         else:
             st.markdown("#### 📷 Photo Source")
             if is_cloud:
@@ -568,7 +357,19 @@ if page == "Stress Detection Portal":
                         st.error("Failed to decode uploaded image. Please try another file.")
     
     with col2:
-        st.markdown("#### 📊 Status & Telemetry")
+        # Split col2 header to put navigation selectbox next to "Status & Telemetry" on desktop
+        status_header_col1, status_header_col2 = st.columns([2, 1])
+        with status_header_col1:
+            st.markdown("##### 📊 Status & Telemetry")
+        with status_header_col2:
+            page = st.selectbox(
+                "Navigation", 
+                ["Stress Detection Portal", "Analytics Dashboard"], 
+                key="nav_portal",
+                index=0,
+                on_change=on_portal_change,
+                label_visibility="collapsed"
+            )
         
         # Real-time dashboard feedback
         if is_cloud:
@@ -605,7 +406,10 @@ elif page == "Analytics Dashboard":
             ["All History", "Last 1 Hour", "Last 30 Minutes", "Last 15 Minutes", "Last 10 Minutes", "Last 5 Minutes"]
         )
         
-        now = pd.Timestamp.now()
+        now = df["Timestamp"].max()
+        if pd.isna(now):
+            now = pd.Timestamp.now()
+
         if time_filter == "Last 1 Hour":
             df = df[df["Timestamp"] >= now - pd.Timedelta(hours=1)]
         elif time_filter == "Last 30 Minutes":
@@ -628,15 +432,14 @@ elif page == "Analytics Dashboard":
             column_config={
                 "Timestamp": st.column_config.DatetimeColumn(
                     "Timestamp",
-                    format="YYYY-MM-DD HH:mm:ss",
-                    alignment="center"
+                    format="YYYY-MM-DD HH:mm:ss"
                 ),
                 "Stress Level": st.column_config.NumberColumn(
                     "Stress Level",
-                    format="%d%%",
-                    alignment="center"
+                    format="%d%%"
                 )
             }
         )
+
     else:
         st.info("No logs saved yet. Please perform stress detection first.")
