@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Streamlit Client-Side WebRTC Stress Detector</title>
+    <!-- Load MediaPipe Face Detection CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+    <!-- Load ONNX Runtime Web CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0e1117;
+            color: #ffffff;
+            margin: 0;
+            padding: 4px;
+        }
+        #container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: #1e222b;
+            border: 1px solid #30363d;
+        }
+        video {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+        canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        #status {
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #a3a8b4;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="status">⏳ Initializing Camera and AI Models...</div>
+
+<div id="container">
+    <video id="webcam" width="640" height="480" autoplay playsinline muted></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
+</div>
+
+<script>
+    const labels = {0: "Angry", 1: "Disgust", 2: "Fear", 3: "Happy", 4: "Sad", 5: "Surprise", 6: "Neutral"};
+    let session = null;
+    let stressCounter = 0;
+    let lastSentTime = 0;
+    let modelLoaded = false;
+    let lastDetection = null;
+    let lastDetectionTime = 0;
+    
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('output_canvas');
+    const ctx = canvas.getContext('2d');
+    const statusDiv = document.getElementById('status');
+
+    // Streamlit Communication Protocol
+    function sendRender() {
+        window.parent.postMessage({
+            isStreamlitMessage: true,
+            type: "streamlit:componentReady",
+            apiVersion: 1
+        }, "*");
+    }
+    
+    function setFrameHeight(height) {
+        window.parent.postMessage({
+            isStreamlitMessage: true,
+            type: "streamlit:setFrameHeight",
+            height: height
+        }, "*");
+    }
+
+    function adjustFrameHeight() {
+        const container = document.getElementById('container');
+        const status = document.getElementById('status');
+        const h = (container ? container.offsetHeight : 480) + (status ? status.offsetHeight : 30) + 15;
+        setFrameHeight(h);
+    }
+
+    function sendTelemetry(stress, emotion, confidence) {
+        const now = Date.now();
+        if (now - lastSentTime > 400) { // Throttle updates to Python to every 400ms to save bandwidth/rendering cycles
+            lastSentTime = now;
+            
+            // Format current client time as YYYY-MM-DD HH:mm:ss in browser local timezone
+            const clientTime = new Date().toLocaleString('sv-SE');
+            
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: "streamlit:setComponentValue",
+                value: {
+                    stress_level: Math.round(stress),
+                    emotion: emotion,
+                    confidence: parseFloat(confidence.toFixed(2)),
+                    client_time: clientTime
+                }
+            }, "*");
+        }
+    }
+
+
+    async function init() {
+        try {
+            statusDiv.innerText = "⏳ Loading ONNX Model (2.48 MB)...";
+            const origin = window.location.origin;
+            let modelUrl = `${origin}/app/static/emotion_stress_cnn.onnx`;
+            
+            try {
+                console.log("Attempting to load model from:", modelUrl);
+                session = await ort.InferenceSession.create(modelUrl);
+                console.log("Successfully loaded model from local static endpoint.");
+            } catch (err) {
+                console.warn("Failed to load model from local path, trying Hugging Face CDN fallback...", err);
+                // Dynamic fallback to user's Hugging Face Space repository LFS resolver URL
+                modelUrl = "https://huggingface.co/spaces/andyderis/face-expression-detector/resolve/main/static/emotion_stress_cnn.onnx";
+                session = await ort.InferenceSession.create(modelUrl);
+                console.log("Successfully loaded model from Hugging Face CDN fallback.");
+            }
+            
+            modelLoaded = true;
+            statusDiv.innerText = "⏳ Requesting webcam access...";
+
+            // Initialize MediaPipe Face Detection
+            const faceDetection = new FaceDetection({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+            });
+
+            faceDetection.setOptions({
+                model: 'short',
+                minDetectionConfidence: 0.5
+            });
+
+            faceDetection.onResults(onResults);
+
+            // Access Camera
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, frameRate: { max: 30 } },
+                audio: false
+            });
+            video.srcObject = stream;
+            
+            // Explicitly play the video to trigger native rendering on the browser
+            await video.play();
+            
+            statusDiv.innerHTML = "⚡ <span style='color: #00E676;'>Live Webcam Active (Client-Side)</span>";
+
+            // Process video frames using native requestAnimationFrame (60 FPS rendering)
+            let processing = false;
+            let heightAdjusted = false;
+            async function processFrame() {
+                if (video.paused || video.ended) {
+                    requestAnimationFrame(processFrame);
+                    return;
+                }
+                
+                // Adjust iframe height and canvas dimensions dynamically once the camera resolution resolves (prevents mobile blank gap and squishing)
+                if (!heightAdjusted && video.videoWidth > 0) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    adjustFrameHeight();
+                    heightAdjusted = true;
+                }
+                
+                // 1. Draw the current video frame onto the canvas (bypasses browser hardware video overlay bugs)
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // 2. Draw cached bounding box overlay if it is fresh (less than 400ms old)
+                if (lastDetection && (Date.now() - lastDetectionTime < 400)) {
+                    const color = lastDetection.isStressed ? '#FF4B4B' : '#00E676';
+                    
+                    // Scale HUD stroke and font relative to actual canvas resolution
+                    const relativeLineWidth = Math.max(2, Math.round(canvas.width / 200));
+                    const relativeFontSize = Math.max(12, Math.round(canvas.width / 40));
+                    const relativeSmallFontSize = Math.max(10, Math.round(canvas.width / 50));
+                    
+                    // Draw bounding box
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = relativeLineWidth;
+                    ctx.strokeRect(lastDetection.bx, lastDetection.by, lastDetection.bw, lastDetection.bh);
+                    
+                    // Draw HUD text
+                    ctx.fillStyle = color;
+                    ctx.font = `bold ${relativeFontSize}px sans-serif`;
+                    ctx.fillText(`${lastDetection.emotion} (${Math.round(lastDetection.confidence * 100)}%)`, lastDetection.bx, lastDetection.by - 10);
+                    
+                    // Draw stress meter background
+                    ctx.fillStyle = 'rgba(80, 80, 80, 0.6)';
+                    ctx.fillRect(lastDetection.bx, lastDetection.by - 30, 100, 6);
+                    // Draw stress meter value
+                    ctx.fillStyle = color;
+                    ctx.fillRect(lastDetection.bx, lastDetection.by - 30, stressCounter, 6);
+                    
+                    // Draw stress text
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = `bold ${relativeSmallFontSize}px sans-serif`;
+                    ctx.fillText(`Stress: ${stressCounter}%`, lastDetection.bx + 105, lastDetection.by - 22);
+
+                    if (stressCounter >= 30) {
+                        ctx.fillStyle = '#FF4B4B';
+                        ctx.font = `bold ${relativeFontSize}px sans-serif`;
+                        ctx.fillText('ALERT!', lastDetection.bx, lastDetection.by - 38);
+                    }
+                }
+                
+                // 3. Asynchronously trigger face detection without blocking the rendering loop
+                if (!processing) {
+                    processing = true;
+                    faceDetection.send({ image: video })
+                        .then(() => {
+                            processing = false;
+                        })
+                        .catch((err) => {
+                            console.error("Face Detection Frame Error:", err);
+                            processing = false;
+                        });
+                }
+                
+                requestAnimationFrame(processFrame);
+            }
+            
+            // Start native frame processing loop
+            requestAnimationFrame(processFrame);
+
+        } catch (e) {
+            statusDiv.innerHTML = `<span style="color: #ff4b4b;">Initialization Error: ${e.message}</span>`;
+            console.error("Camera/AI Init Error:", e);
+        }
+    }
+
+    // Process a single cropped face image (48x48 grayscale) through ONNX CNN
+    async function runInference(videoEl, bx, by, bw, bh) {
+        if (!session) return null;
+        
+        // Create off-screen canvas for cropping and resizing to 48x48
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 48;
+        tempCanvas.height = 48;
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        // Draw cropped face
+        tempCtx.drawImage(videoEl, bx, by, bw, bh, 0, 0, 48, 48);
+        
+        // Get RGBA pixel data
+        const imgData = tempCtx.getImageData(0, 0, 48, 48);
+        const data = imgData.data;
+        
+        // Convert to Grayscale & Normalize (0.0 to 1.0)
+        const floatData = new Float32Array(48 * 48);
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i+1];
+            const b = data[i+2];
+            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            floatData[i/4] = gray / 255.0;
+        }
+        
+        // Prepare tensor & run ONNX model
+        const inputTensor = new ort.Tensor('float32', floatData, [1, 48, 48, 1]);
+        const feeds = {};
+        feeds[session.inputNames[0]] = inputTensor;
+        
+        const results = await session.run(feeds);
+        const output = results[session.outputNames[0]].data;
+        
+        // ArgMax
+        let maxIdx = 0;
+        let maxVal = output[0];
+        for (let i = 1; i < output.length; i++) {
+            if (output[i] > maxVal) {
+                maxVal = output[i];
+                maxIdx = i;
+            }
+        }
+        
+        return {
+            class_id: maxIdx,
+            confidence: maxVal
+        };
+    }
+
+    async function onResults(results) {
+        let detectedEmotion = "Neutral";
+        let confidenceVal = 0.0;
+        
+        if (results.detections && results.detections.length > 0) {
+            const detection = results.detections[0];
+            const boundingBox = detection.boundingBox;
+            
+            // Calculate absolute pixel coordinates for drawing on canvas (640x480)
+            const bx = boundingBox.xCenter * canvas.width - (boundingBox.width * canvas.width) / 2;
+            const by = boundingBox.yCenter * canvas.height - (boundingBox.height * canvas.height) / 2;
+            const bw = boundingBox.width * canvas.width;
+            const bh = boundingBox.height * canvas.height;
+            
+            // Calculate absolute pixel coordinates for cropping source video
+            const vWidth = video.videoWidth || canvas.width;
+            const vHeight = video.videoHeight || canvas.height;
+            const vsx = Math.max(0, boundingBox.xCenter * vWidth - (boundingBox.width * vWidth) / 2);
+            const vsy = Math.max(0, boundingBox.yCenter * vHeight - (boundingBox.height * vHeight) / 2);
+            const vsw = Math.min(vWidth - vsx, boundingBox.width * vWidth);
+            const vsh = Math.min(vHeight - vsy, boundingBox.height * vHeight);
+            
+            if (vsw > 10 && vsh > 10) {
+                // Run inference on the face crop from the video element
+                const prediction = await runInference(video, vsx, vsy, vsw, vsh);
+                
+                if (prediction) {
+                    const cid = prediction.class_id;
+                    confidenceVal = prediction.confidence;
+                    detectedEmotion = labels[cid];
+ 
+                    // Stress state logic (Angry=0, Fear=2)
+                    if (cid === 0 || cid === 2) {
+                        stressCounter = Math.min(100, stressCounter + 2);
+                    } else {
+                        stressCounter = Math.max(0, stressCounter - 1);
+                    }
+                    
+                    const isStressed = cid === 0 || cid === 2;
+                    
+                    // Cache the detection results for 60 FPS drawing
+                    lastDetection = {
+                        bx: bx,
+                        by: by,
+                        bw: bw,
+                        bh: bh,
+                        emotion: detectedEmotion,
+                        confidence: confidenceVal,
+                        isStressed: isStressed
+                    };
+                    lastDetectionTime = Date.now();
+                }
+            }
+        } else {
+            // Gradually decay stress if no face is detected
+            stressCounter = Math.max(0, stressCounter - 1);
+            // Clear last detection cache so the bounding box disappears
+            lastDetection = null;
+        }
+        
+        // Send telemetry payload back to Streamlit
+        sendTelemetry(stressCounter, detectedEmotion, confidenceVal);
+    }
+
+    // Initialize on load
+    window.addEventListener('load', () => {
+        setFrameHeight(150); // Set a small initial loading height
+        sendRender(); // Notify Streamlit immediately that the component is loaded
+        init();
+    });
+</script>
+</body>
+</html>

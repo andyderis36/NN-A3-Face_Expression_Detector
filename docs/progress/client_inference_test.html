@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Client-Side WebRTC Stress Detector Test</title>
+    <!-- Load MediaPipe Face Detection CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+    <!-- Load ONNX Runtime Web CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0e1117;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h2 {
+            margin-bottom: 5px;
+            color: #ff4b4b;
+        }
+        #container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            background-color: #1e222b;
+        }
+        video {
+            display: none; /* Hide raw video element */
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+        #status {
+            margin-top: 15px;
+            font-size: 16px;
+            color: #a3a8b4;
+            text-align: center;
+        }
+        #telemetry {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background: #1e222b;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+<h2>🧠 Stress Detector Client-Side Test</h2>
+<div id="status">Initializing Camera and AI Models...</div>
+
+<div id="container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
+</div>
+
+<div id="telemetry">
+    Emotion: - | Stress Level: 0%
+</div>
+
+<script>
+    const labels = {0: "Angry", 1: "Disgust", 2: "Fear", 3: "Happy", 4: "Sad", 5: "Surprise", 6: "Neutral"};
+    let session = null;
+    let stressCounter = 0;
+    let lastSentTime = 0;
+    
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('output_canvas');
+    const ctx = canvas.getContext('2d');
+    const statusDiv = document.getElementById('status');
+    const telemetryDiv = document.getElementById('telemetry');
+
+    // Send data back to Streamlit
+    function sendTelemetry(stress, emotion, confidence) {
+        const now = Date.now();
+        if (now - lastSentTime > 300) { // Throttle sending to every 300ms
+            lastSentTime = now;
+            
+            // Standard Streamlit iframe postMessage communication
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: "streamlit:setComponentValue",
+                value: {
+                    stress_level: Math.round(stress),
+                    emotion: emotion,
+                    confidence: parseFloat(confidence.toFixed(2))
+                }
+            }, "*");
+        }
+    }
+
+    async function init() {
+        try {
+            statusDiv.innerText = "Loading ONNX model... (2.48 MB)";
+            const origin = window.location.origin;
+            // Resolve correct URL for static files served by Streamlit
+            const modelUrl = `${origin}/app/static/emotion_stress_cnn.onnx`;
+            
+            // Initialize ONNX Session (enable WASM/WebGL backend)
+            session = await ort.InferenceSession.create(modelUrl);
+            statusDiv.innerText = "Model Loaded. Requesting camera access...";
+
+            // Initialize MediaPipe Face Detection
+            const faceDetection = new FaceDetection({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+            });
+
+            faceDetection.setOptions({
+                model: 'short',
+                minDetectionConfidence: 0.5
+            });
+
+            faceDetection.onResults(onResults);
+
+            // Access Camera
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, frameRate: { max: 30 } },
+                audio: false
+            });
+            video.srcObject = stream;
+            
+            statusDiv.innerText = "⚡ System Active (Processing locally at 30 FPS)";
+
+            // Start camera utils helper
+            const camera = new Camera(video, {
+                onFrame: async () => {
+                    await faceDetection.send({ image: video });
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+
+        } catch (e) {
+            statusDiv.innerHTML = `<span style="color: #ff4b4b;">Error: ${e.message}</span>`;
+            console.error(e);
+        }
+    }
+
+    // Process a single cropped face image (48x48 grayscale) through ONNX CNN
+    async function runInference(videoEl, bx, by, bw, bh) {
+        if (!session) return null;
+        
+        // Create hidden canvas for cropping and resizing to 48x48
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 48;
+        tempCanvas.height = 48;
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        // Crop and Draw
+        tempCtx.drawImage(videoEl, bx, by, bw, bh, 0, 0, 48, 48);
+        
+        // Get RGBA pixel data
+        const imgData = tempCtx.getImageData(0, 0, 48, 48);
+        const data = imgData.data;
+        
+        // Convert to Grayscale & Normalize (0.0 to 1.0)
+        const floatData = new Float32Array(48 * 48);
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i+1];
+            const b = data[i+2];
+            // Luminance formula
+            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            floatData[i/4] = gray / 255.0;
+        }
+        
+        // Run model inference
+        const inputTensor = new ort.Tensor('float32', floatData, [1, 48, 48, 1]);
+        const feeds = {};
+        feeds[session.inputNames[0]] = inputTensor;
+        
+        const results = await session.run(feeds);
+        const output = results[session.outputNames[0]].data;
+        
+        // Find ArgMax
+        let maxIdx = 0;
+        let maxVal = output[0];
+        for (let i = 1; i < output.length; i++) {
+            if (output[i] > maxVal) {
+                maxVal = output[i];
+                maxIdx = i;
+            }
+        }
+        
+        return {
+            class_id: maxIdx,
+            confidence: maxVal
+        };
+    }
+
+    async function onResults(results) {
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw the raw camera frame
+        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+        let detectedEmotion = "Neutral";
+        let confidenceVal = 0.0;
+        
+        if (results.detections && results.detections.length > 0) {
+            const detection = results.detections[0];
+            const boundingBox = detection.boundingBox;
+            
+            // Convert normalized box back to canvas pixels
+            const bx = boundingBox.xCenter * canvas.width - (boundingBox.width * canvas.width) / 2;
+            const by = boundingBox.yCenter * canvas.height - (boundingBox.height * canvas.height) / 2;
+            const bw = boundingBox.width * canvas.width;
+            const bh = boundingBox.height * canvas.height;
+            
+            // Constrain coordinates to boundaries of video
+            const sx = Math.max(0, bx);
+            const sy = Math.max(0, by);
+            const sw = Math.min(canvas.width - sx, bw);
+            const sh = Math.min(canvas.height - sy, bh);
+            
+            if (sw > 10 && sh > 10) {
+                // Run inference on the face crop
+                const prediction = await runInference(video, sx, sy, sw, sh);
+                
+                if (prediction) {
+                    const cid = prediction.class_id;
+                    confidenceVal = prediction.confidence;
+                    detectedEmotion = labels[cid];
+
+                    // Stress state accumulation
+                    if (cid === 0 || cid === 2) { // Angry, Fear
+                        stressCounter = Math.min(100, stressCounter + 2);
+                    } else {
+                        stressCounter = Math.max(0, stressCounter - 1);
+                    }
+                    
+                    const isStressed = cid === 0 || cid === 2;
+                    const color = isStressed ? '#FF4B4B' : '#00E676';
+                    
+                    // Draw bounding box
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(bx, by, bw, bh);
+                    
+                    // Draw HUD text
+                    ctx.fillStyle = color;
+                    ctx.font = 'bold 16px sans-serif';
+                    ctx.fillText(`${detectedEmotion} (${Math.round(confidenceVal * 100)}%)`, bx, by - 10);
+                    
+                    // Draw stress progress bar background
+                    ctx.fillStyle = 'rgba(80, 80, 80, 0.6)';
+                    ctx.fillRect(bx, by - 30, 100, 6);
+                    // Draw progress bar value
+                    ctx.fillStyle = color;
+                    ctx.fillRect(bx, by - 30, stressCounter, 6);
+                    
+                    // Draw stress percentage text
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 12px sans-serif';
+                    ctx.fillText(`Stress: ${stressCounter}%`, bx + 105, by - 22);
+
+                    if (stressCounter >= 30) {
+                        ctx.fillStyle = '#FF4B4B';
+                        ctx.font = 'bold 14px sans-serif';
+                        ctx.fillText('ALERT!', bx, by - 38);
+                    }
+                }
+            }
+        } else {
+            // Decay stress if no face is detected
+            stressCounter = Math.max(0, stressCounter - 1);
+        }
+
+        // Update telemetry div
+        telemetryDiv.innerText = `Emotion: ${detectedEmotion} | Stress Level: ${stressCounter}%`;
+        
+        // Send data back to Streamlit
+        sendTelemetry(stressCounter, detectedEmotion, confidenceVal);
+    }
+
+    // Run initialization
+    window.addEventListener('load', init);
+</script>
+</body>
+</html>

@@ -32,10 +32,27 @@ To improve classification performance beyond the baseline (~63%), the CNN archit
 4. **CSV Logging**: Programmed automatic logging of timestamps and stress levels to `output/stress_log.csv` only when the stress level exceeds a threshold of 30.
 
 ### 2.3 Cloud-Native Streamlit Dashboard (`app.py`)
-To enable public web hosting and demonstrate deployment-readiness, a Streamlit dashboard was created:
-1. **WebRTC Integration**: Used `streamlit-webrtc` with a thread-safe frame processing callback to fetch, process, and return annotated video frames asynchronously on the server.
-2. **HUD Bounding Box Overlay**: Renders real-time classification, smooth progress bar meters, and alert markers directly on the browser feed.
-3. **Analytics Panel**: Includes an interactive Plotly chronological stress graph with customized selection windows (Last 5, 10, 15, 30 minutes, or 1 hour) and a centered data grid log.
+To enable public web hosting and demonstrate deployment-readiness, the dashboard has been deployed to two major cloud environments:
+* **Hugging Face Spaces**: [Live App Link](https://huggingface.co/spaces/andyderis/face-expression-detector)
+* **Streamlit Community Cloud**: [Live App Link](https://face-expression-detector.streamlit.app/)
+
+Both cloud dashboards leverage a client-side inference architecture (Scenario A) to solve platform-specific limits:
+1. **WebRTC Client-Side Inference Integration**: Implemented a native HTML5 webcam capture component (`frontend/index.html`). Face landmark detection is executed in the user's browser using MediaPipe, and classification is performed locally in the browser runtime via ONNX Runtime Web with the converted `emotion_stress_cnn.onnx` model. This bypasses server-side hardware limitations, iframe sandboxing blocks (specifically on Hugging Face Spaces), and network latency, achieving a smooth 60 FPS rendering rate.
+2. **HUD Bounding Box Overlay**: Draws face bounding boxes, real-time classifications, and dynamic stress progress bars directly onto an HTML5 Canvas overlay, avoiding browser hardware acceleration artifacts.
+3. **Responsive Spacing & Aspect Ratio**: Features dynamic component resizing that adjusts iframe height based on the device width, eliminating empty space on mobile, and matching the canvas aspect ratio 1:1 with the webcam stream resolution to prevent image squishing on mobile devices.
+4. **Analytics Panel**: Includes an interactive Plotly chronological stress graph with customized selection windows (Last 5, 10, 15, 30 minutes, or 1 hour) and a synchronized data grid log.
+
+### 2.4 Cloud Deployment Obstacles & Engineering Solutions
+During the deployment of the real-time webcam dashboard on public cloud platforms (Streamlit Community Cloud & Hugging Face Spaces), several technical obstacles were identified and resolved:
+1. **WebRTC NAT & Firewall Traversal (STUN/TURN Failure)**:
+   * *Problem*: Traditional server-side WebRTC components require peer-to-peer media streaming. Public cloud hosts run behind strict symmetric NATs and firewalls, which block direct network handshakes. Without dedicated TURN servers, connection handshakes fail, leading to permanent camera loading loops.
+   * *Solution*: Migrated to client-side inference (Scenario A). The webcam stream is captured locally and processed entirely in the client browser's runtime. Because video frames never leave the client's device, the connection is immune to cloud firewall and NAT blocks.
+2. **Hugging Face Iframe Sandboxing Blocks**:
+   * *Problem*: Hugging Face Spaces serves Streamlit apps within a sandboxed cross-origin iframe. Modern browsers block webcam access inside iframes unless granted explicit permissions.
+   * *Solution*: Built a native HTML5 component interface inside `frontend/index.html` that handles browser permission negotiations directly inside the component sandbox, bypassing nesting layers.
+3. **Mobile Display & Aspect Ratio Distortions**:
+   * *Problem*: Front-facing cameras on mobile phones stream in a widescreen 16:9 or vertical portrait aspect ratio. Drawing these frames into a fixed 4:3 canvas causes vertical squishing ("gepeng"). Additionally, fixed-height iframe configurations create a large empty gap below the camera feed when columns stack vertically on mobile.
+   * *Solution*: Implemented dynamic HTML5 Canvas resize hooks (`canvas.width = video.videoWidth`, `canvas.height = video.videoHeight`) to match the webcam stream's aspect ratio 1:1, preventing image distortion. Introduced dynamic Javascript iframe height posting (`setFrameHeight`) to shrink the container height to the active video height on mobile devices, removing empty gaps.
 
 ---
 
@@ -103,10 +120,25 @@ The training history plot (displaying accuracy and loss curves for both training
 *The plot is also saved locally for submission at [output/training_history.png](file:///C:/Users/andyd/Documents/UUM/UUM%20OL/A252/NN/A3/output/training_history.png).*
 
 #### 2. Provide a confusion matrix for stress vs non-stress detection.
-* Can be generated on the test split using `sklearn.metrics.confusion_matrix`.
+Below is the binary confusion matrix for stress (Angry and Fear) vs. non-stress (Disgust, Happy, Sad, Surprise, Neutral) classes evaluated on the 20% test split (7,178 samples total):
+
+| | Predicted Non-Stress | Predicted Stress |
+| :--- | :---: | :---: |
+| **Actual Non-Stress** | TN: 4,283 | FP: 867 |
+| **Actual Stress** | FN: 914 | TP: 1,114 |
+
+The visual Confusion Matrix is saved locally as `output/confusion_matrix.png` and shown below:
+
+![Confusion Matrix (Stress vs Non-Stress)](file:///C:/Users/andyd/Documents/UUM/UUM%20OL/A252/NN/A3/output/confusion_matrix.png)
 
 #### 3. Analyse stress detection rate vs false alarm rate.
-* A low detection threshold captures stress quickly (high recall) but increases false alarms. A higher threshold reduces false alarms but might delay or miss stress detection. Tuning the consecutive frame threshold (e.g. 30 frames) balances this trade-off.
+Based on the experimental evaluation on the test set:
+* **Accuracy**: **75.19%**
+* **Stress Detection Rate (Recall)**: **54.93%** (the proportion of actual stress states correctly captured by the model).
+* **False Alarm Rate**: **16.83%** (the rate at which calm/non-stress states are incorrectly flagged as stress).
+
+*Analysis*: The model demonstrates a strong capability to isolate non-stress states (high True Negatives of 4,283 and a low False Alarm Rate of 16.83%), which prevents unnecessary alarms during typical usage. A Stress Detection Rate (Recall) of 54.93% indicates that the model identifies slightly more than half of the acute stress expressions. In a real-time system, this rate is balanced by the **consecutive frame counter** threshold (e.g., requiring 30 consecutive stress detections to trigger a physical warning), which acts as a temporal smoothing filter to further minimize false alarms while ensuring sustained stress episodes are eventually captured.
+
 
 #### 4. Discuss limitations of using only facial images for stress detection.
 * **Force-Classifying**: In a binary system trained only on Angry vs. Fear, any face (including neutral or happy) is forced into one of these classes. (Note: This limitation was resolved by migrating to a 7-class emotion model, where neutral or smiling faces are correctly classified as "Neutral" or "Happy" and do not falsely trigger stress accumulation.)
