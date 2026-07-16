@@ -19,6 +19,19 @@ MODEL_PATH = os.path.join(current_dir, "output", "emotion_stress_cnn.onnx")
 CASCADE_PATH = os.path.join(current_dir, "Pack01b_DeploymentCode", "haarcascade_frontalface_default.xml")
 LOG_PATH = os.path.join(current_dir, "output", "stress_log.csv")
 
+def play_local_beep_async():
+    try:
+        import winsound
+        def run_double_beep():
+            winsound.Beep(1000, 120) # 1000Hz for 120ms
+            time.sleep(0.08)         # 80ms silence
+            winsound.Beep(1000, 120) # 1000Hz for 120ms
+        threading.Thread(target=run_double_beep, daemon=True).start()
+    except ImportError:
+        pass
+
+
+
 # Load Model & Cascade (Cached to avoid memory leaks)
 @st.cache_resource
 def load_resources():
@@ -253,6 +266,7 @@ if page == "Stress Detection Portal":
                             if current_time - last_alert > 2.0:
                                 with state.lock:
                                     state.last_alert_time = current_time
+                                play_local_beep_async()
                                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
                                 file_exists = os.path.exists(LOG_PATH)
@@ -261,6 +275,7 @@ if page == "Stress Detection Portal":
                                     if not file_exists or os.path.getsize(LOG_PATH) == 0:
                                         writer.writerow(["Timestamp", "Stress Level"])
                                     writer.writerow([timestamp, current_stress])
+
                     
                     # Read final state
                     with state.lock:

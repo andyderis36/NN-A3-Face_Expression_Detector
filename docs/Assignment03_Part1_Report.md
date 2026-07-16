@@ -124,8 +124,8 @@ Below is the binary confusion matrix for stress (Angry and Fear) vs. non-stress 
 
 | | Predicted Non-Stress | Predicted Stress |
 | :--- | :---: | :---: |
-| **Actual Non-Stress** | TN: 4,283 | FP: 867 |
-| **Actual Stress** | FN: 914 | TP: 1,114 |
+| **Actual Non-Stress** | TN: 3,573 | FP: 1,577 |
+| **Actual Stress** | FN: 430 | TP: 1,598 |
 
 The visual Confusion Matrix is saved locally as `output/confusion_matrix.png` and shown below:
 
@@ -133,11 +133,14 @@ The visual Confusion Matrix is saved locally as `output/confusion_matrix.png` an
 
 #### 3. Analyse stress detection rate vs false alarm rate.
 Based on the experimental evaluation on the test set:
-* **Accuracy**: **75.19%**
-* **Stress Detection Rate (Recall)**: **54.93%** (the proportion of actual stress states correctly captured by the model).
-* **False Alarm Rate**: **16.83%** (the rate at which calm/non-stress states are incorrectly flagged as stress).
+* **Accuracy**: **72.04%** (previously 75.19%)
+* **Stress Detection Rate (Recall)**: **78.80%** (previously 54.93%) - the proportion of actual stress states correctly captured by the model.
+* **False Alarm Rate**: **30.62%** (previously 16.83%) - the rate at which calm/non-stress states are incorrectly flagged as stress.
 
-*Analysis*: The model demonstrates a strong capability to isolate non-stress states (high True Negatives of 4,283 and a low False Alarm Rate of 16.83%), which prevents unnecessary alarms during typical usage. A Stress Detection Rate (Recall) of 54.93% indicates that the model identifies slightly more than half of the acute stress expressions. In a real-time system, this rate is balanced by the **consecutive frame counter** threshold (e.g., requiring 30 consecutive stress detections to trigger a physical warning), which acts as a temporal smoothing filter to further minimize false alarms while ensuring sustained stress episodes are eventually captured.
+*Analysis*: The model demonstrates a significantly improved capability to capture acute stress states (True Positives increased to 1,598, yielding a high Stress Detection Rate (Recall) of 78.80%). While this increased sensitivity leads to a higher False Alarm Rate of 30.62% (some calm states flagged as stress), this trade-off is highly appropriate for our user-facing application. In a real-time deployment, brief false alarms are effectively smoothed out by the **consecutive frame counter** threshold (e.g., requiring 30 consecutive stress frames to trigger a physical alert), ensuring only sustained stress episodes trigger action, while the high recall ensures no major stress events are missed.
+
+
+
 
 
 #### 4. Discuss limitations of using only facial images for stress detection.

@@ -114,6 +114,43 @@
     }
 
 
+    let lastBeepTime = 0;
+    function playBeep() {
+        const now = Date.now();
+        if (now - lastBeepTime > 3000) { // Limit beep to at most once every 3 seconds
+            lastBeepTime = now;
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContext) return;
+                const audioCtx = new AudioContext();
+                
+                // Helper to play a single beep pulse
+                function playPulse(delay) {
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(1000, audioCtx.currentTime + delay); // 1000Hz frequency
+                    
+                    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime + delay); // 30% volume
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + 0.12); // Fade out in 120ms
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+                    
+                    oscillator.start(audioCtx.currentTime + delay);
+                    oscillator.stop(audioCtx.currentTime + delay + 0.12);
+                }
+                
+                // Play double beep (immediately, then 200ms later)
+                playPulse(0);
+                playPulse(0.2);
+            } catch (err) {
+                console.warn("Procedural beep playback skipped (browser autoplay restrictions):", err);
+            }
+        }
+    }
+
     async function init() {
         try {
             statusDiv.innerText = "⏳ Loading ONNX Model (2.48 MB)...";
@@ -214,6 +251,7 @@
                         ctx.fillStyle = '#FF4B4B';
                         ctx.font = `bold ${relativeFontSize}px sans-serif`;
                         ctx.fillText('ALERT!', lastDetection.bx, lastDetection.by - 38);
+                        playBeep();
                     }
                 }
                 

@@ -25,6 +25,18 @@ if not os.path.exists(log_file):
         writer = csv.writer(f)
         writer.writerow(["Timestamp", "Stress Level"])
 
+def play_local_beep_async():
+    try:
+        import winsound
+        def run_double_beep():
+            winsound.Beep(1000, 120) # 1000Hz for 120ms
+            time.sleep(0.08)         # 80ms silence
+            winsound.Beep(1000, 120) # 1000Hz for 120ms
+        threading.Thread(target=run_double_beep, daemon=True).start()
+    except ImportError:
+        pass
+
+
 #load the CNN model (from output directory)
 model_path = os.path.join(output_dir, "emotion_stress_cnn.h5")
 model = tf.keras.models.load_model(model_path)
@@ -131,7 +143,8 @@ while True:
             
             current_time = time.time()
             if current_time - last_alert_time > 2.0: # Cooldown of 2 seconds
-                threading.Thread(target=winsound.Beep, args=(1000, 300)).start()
+                play_local_beep_async()
+
                 
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 with open(log_file, "a", newline="") as f:
