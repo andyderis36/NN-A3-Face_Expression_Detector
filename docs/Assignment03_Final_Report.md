@@ -25,7 +25,7 @@ To improve classification performance beyond the baseline, the CNN architecture 
 
 #### 2.2 Cloud-Native Deployment & Solutions
 The dashboard has been deployed using a modern client-side inference architecture to solve platform-specific limits (like WebRTC NAT issues and Hugging Face iframe sandboxing):
-* **Hugging Face Spaces**: https://huggingface.co/spaces/andyderis/face-expression-detector
+* **Hugging Face Spaces**: https://huggingface.co/spaces/andyderis36/face-expression-detector
 * **Streamlit Community Cloud**: https://face-expression-detector.streamlit.app/
 * **GitHub Repository**: https://github.com/andyderis36/NN-A3-Face_Expression_Detector.git
 

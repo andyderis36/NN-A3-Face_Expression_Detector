@@ -164,7 +164,7 @@
             } catch (err) {
                 console.warn("Failed to load model from local path, trying Hugging Face CDN fallback...", err);
                 // Dynamic fallback to user's Hugging Face Space repository LFS resolver URL
-                modelUrl = "https://huggingface.co/spaces/andyderis/face-expression-detector/resolve/main/static/emotion_stress_cnn.onnx";
+                modelUrl = "https://huggingface.co/spaces/andyderis36/face-expression-detector/resolve/main/static/emotion_stress_cnn.onnx";
                 session = await ort.InferenceSession.create(modelUrl);
                 console.log("Successfully loaded model from Hugging Face CDN fallback.");
             }

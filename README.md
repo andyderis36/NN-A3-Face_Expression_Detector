@@ -122,7 +122,7 @@ If you wish to run a Streamlit dashboard that processes WebRTC frames on the bac
 ## ☁️ Live Cloud Deployments
 
 This project is actively deployed and running on both platforms:
-* **Hugging Face Spaces**: [Live App](https://huggingface.co/spaces/andyderis/face-expression-detector)
+* **Hugging Face Spaces**: [Live App](https://huggingface.co/spaces/andyderis36/face-expression-detector)
 * **Streamlit Community Cloud**: [Live App](https://face-expression-detector.streamlit.app/)
 
 ---

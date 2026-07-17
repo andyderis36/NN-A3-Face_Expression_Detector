@@ -33,7 +33,7 @@ To improve classification performance beyond the baseline (~63%), the CNN archit
 
 ### 2.3 Cloud-Native Streamlit Dashboard (`app.py`)
 To enable public web hosting and demonstrate deployment-readiness, the dashboard has been deployed to two major cloud environments:
-* **Hugging Face Spaces**: [Live App Link](https://huggingface.co/spaces/andyderis/face-expression-detector)
+* **Hugging Face Spaces**: [Live App Link](https://huggingface.co/spaces/andyderis36/face-expression-detector)
 * **Streamlit Community Cloud**: [Live App Link](https://face-expression-detector.streamlit.app/)
 
 Both cloud dashboards leverage a client-side inference architecture (Scenario A) to solve platform-specific limits:

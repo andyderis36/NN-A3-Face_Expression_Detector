@@ -20,7 +20,7 @@
 
 ## 2. Live Cloud Deployment Links
 Aplikasi kini aktif dan berjalan dengan lancar di kedua platform hosting publik:
-* **Hugging Face Spaces**: [https://huggingface.co/spaces/andyderis/face-expression-detector](https://huggingface.co/spaces/andyderis/face-expression-detector)
+* **Hugging Face Spaces**: [https://huggingface.co/spaces/andyderis36/face-expression-detector](https://huggingface.co/spaces/andyderis36/face-expression-detector)
 * **Streamlit Community Cloud**: [https://face-expression-detector.streamlit.app/](https://face-expression-detector.streamlit.app/)
 
 ---
